@@ -4,8 +4,8 @@
   body { margin: 0; background: #000; }
   svg { width: 100vw; height: 100vh; display: block; }
   line { stroke: #aaa; }
-  circle { stroke: #fff; stroke-width: 1.5px; }
-  text { font: 10px sans-serif; fill: #fff; pointer-events: none; }
+  circle { stroke: #fff; stroke-width: 1.5px; fill: #69b3a2; }
+  text { font: 10px sans-serif; fill: #fff; text-anchor: middle; }
 </style>
 <body>
 <svg></svg>
@@ -14,7 +14,8 @@
 const apiKey = "patB8cm7VUd15sLk8.e54309b459eb1ebf40e9515d4e0a840b84dc7eba0421a5ad79c3b67f1899c65b";
 const baseId = "appbvoK6uB9kPATTN";
 const tableName = "Pairings";
-const url = `https://api.airtable.com/v0/${baseId}/${tableName}?pageSize=100`;
+const viewName = "2025%20View";
+const url = `https://api.airtable.com/v0/${baseId}/${tableName}?view=${viewName}&pageSize=100`;
 
 async function fetchData() {
   const res = await fetch(url, {
@@ -33,91 +34,74 @@ function generateEdges(data) {
   });
 
   const links = [];
-  const nodesSet = new Set();
+  const countMap = {};
+
   Object.values(grouped).forEach(group => {
     for (let i = 0; i < group.length; i++) {
       for (let j = i + 1; j < group.length; j++) {
-        links.push({ source: group[i], target: group[j] });
-        nodesSet.add(group[i]);
-        nodesSet.add(group[j]);
+        const source = group[i];
+        const target = group[j];
+        const key = [source, target].sort().join("-");
+        countMap[key] = (countMap[key] || 0) + 1;
+        links.push({ source, target });
       }
     }
   });
 
-  return {
-    nodes: Array.from(nodesSet).map(id => ({ id })),
-    links
-  };
+  const nodeSet = new Set(links.flatMap(link => [link.source, link.target]));
+  const nodes = Array.from(nodeSet).map(id => ({ id }));
+  return { nodes, links, countMap };
 }
 
-function renderGraph(graph) {
-  const svg = d3.select("svg"),
-        width = window.innerWidth,
-        height = window.innerHeight;
+function renderCircularGraph(graph) {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  const radius = Math.min(width, height) / 2 - 80;
 
-  const simulation = d3.forceSimulation(graph.nodes)
-    .force("link", d3.forceLink(graph.links).id(d => d.id).distance(100))
-    .force("charge", d3.forceManyBody().strength(-200))
-    .force("center", d3.forceCenter(width / 2, height / 2));
+  const svg = d3.select("svg").attr("viewBox", [0, 0, width, height]);
 
-  const link = svg.append("g")
-    .selectAll("line")
-    .data(graph.links)
-    .enter().append("line")
-    .attr("stroke-width", 1);
+  const angle = d3.scalePoint()
+    .domain(graph.nodes.map(d => d.id))
+    .range([0, 2 * Math.PI]);
 
-  const node = svg.append("g")
-    .selectAll("circle")
-    .data(graph.nodes)
-    .enter().append("circle")
-    .attr("r", 6)
-    .call(drag(simulation));
-
-  const label = svg.append("g")
-    .selectAll("text")
-    .data(graph.nodes)
-    .enter().append("text")
-    .text(d => d.id)
-    .attr("font-size", 10);
-
-  simulation.on("tick", () => {
-    link
-      .attr("x1", d => d.source.x)
-      .attr("y1", d => d.source.y)
-      .attr("x2", d => d.target.x)
-      .attr("y2", d => d.target.y);
-
-    node
-      .attr("cx", d => d.x)
-      .attr("cy", d => d.y);
-
-    label
-      .attr("x", d => d.x + 8)
-      .attr("y", d => d.y + 4);
+  const positions = {};
+  graph.nodes.forEach(d => {
+    const a = angle(d.id);
+    d.x = width / 2 + radius * Math.cos(a);
+    d.y = height / 2 + radius * Math.sin(a);
+    positions[d.id] = { x: d.x, y: d.y };
   });
 
-  function drag(simulation) {
-    return d3.drag()
-      .on("start", (event, d) => {
-        if (!event.active) simulation.alphaTarget(0.3).restart();
-        d.fx = d.x;
-        d.fy = d.y;
-      })
-      .on("drag", (event, d) => {
-        d.fx = event.x;
-        d.fy = event.y;
-      })
-      .on("end", (event, d) => {
-        if (!event.active) simulation.alphaTarget(0);
-        d.fx = null;
-        d.fy = null;
-      });
-  }
+  svg.selectAll("line")
+    .data(graph.links)
+    .join("line")
+    .attr("x1", d => positions[d.source].x)
+    .attr("y1", d => positions[d.source].y)
+    .attr("x2", d => positions[d.target].x)
+    .attr("y2", d => positions[d.target].y)
+    .attr("stroke-width", d => {
+      const key = [d.source, d.target].sort().join("-");
+      return graph.countMap[key] || 1;
+    });
+
+  svg.selectAll("circle")
+    .data(graph.nodes)
+    .join("circle")
+    .attr("r", 6)
+    .attr("cx", d => d.x)
+    .attr("cy", d => d.y);
+
+  svg.selectAll("text")
+    .data(graph.nodes)
+    .join("text")
+    .attr("x", d => d.x)
+    .attr("y", d => d.y - 10)
+    .text(d => d.id);
 }
 
 fetchData().then(data => {
   const graph = generateEdges(data);
-  renderGraph(graph);
+  renderCircularGraph(graph);
 });
 </script>
 </body>
